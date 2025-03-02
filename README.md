@@ -34,18 +34,18 @@ npm install
 3. Set up environment variables:
 Create a `.env.local` file with the following variables:
 ```
-# Clerk Authentication
+# Authentication
 NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=your_publishable_key
 CLERK_SECRET_KEY=your_secret_key
 
 # MySQL Database
-MYSQL_HOST=your_mysql_host
-MYSQL_DATABASE=your_database_name
-MYSQL_USER=your_database_user
-MYSQL_PASSWORD=your_database_password
+DATABASE_HOST=localhost
+DATABASE_USER=rousi
+DATABASE_PASSWORD=password
+DATABASE_NAME=rousi_books
 
-# Admin Secret (for protected operations)
-ADMIN_SECRET=your_secure_random_string
+# Google Books API
+GOOGLE_BOOKS_API_KEY=your_google_books_api_key
 
 # Deployment URL
 NEXT_PUBLIC_URL=http://localhost:3000
@@ -60,6 +60,23 @@ npm run db:update
 5. Start the development server:
 ```bash
 npm run dev
+```
+
+### Setting up Google Books API
+
+To fetch book covers and information from Google Books API:
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a new project (or select an existing one)
+3. Navigate to "APIs & Services" > "Library"
+4. Search for "Books API" and enable it
+5. Go to "APIs & Services" > "Credentials"
+6. Create an API key
+7. Add the API key to your `.env.local` file as `GOOGLE_BOOKS_API_KEY`
+
+You can test your Google Books API key setup with:
+```bash
+node scripts/test-google-books.js
 ```
 
 ## Database Schema Management
@@ -128,3 +145,27 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Components
+
+### BookCover Component
+
+The application includes a reusable `BookCover` component for displaying book covers:
+
+```tsx
+<BookCover 
+  title="Book Title"
+  author="Author Name"
+  coverImage={coverImageUrl}
+  width={192}
+  height={288}
+  priority={true}
+  className="rounded-md"
+/>
+```
+
+This component handles:
+- Loading states with a spinner
+- Error states with a fallback UI
+- Automatic fetching from the book cover API if no image URL is provided
+- Optimized image loading

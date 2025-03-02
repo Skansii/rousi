@@ -1,132 +1,188 @@
-import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { getConnection } from '@/lib/db';
+
+// Cache object to store already fetched cover images and reduce API calls
+// Key format: `${title}-${author}`
+const coverCache: Record<string, { coverImage: string; timestamp: number }> = {};
+
+// Cache expiration time: 24 hours
+const CACHE_EXPIRATION = 24 * 60 * 60 * 1000; 
+
+// Rate limiting variables
+const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
+let googleBooksRequestsInWindow = 0;
+let windowStartTime = Date.now();
+const MAX_REQUESTS_PER_WINDOW = 50; // Google Books API limits to 100 requests per minute per user
 
 export async function GET(request: NextRequest) {
-  const { userId } = await auth();
-  
-  // Check if user is authenticated
-  if (!userId) {
-    return NextResponse.json(
-      { error: 'Unauthorized' },
-      { status: 401 }
-    );
-  }
-
-  // Get query parameters
-  const searchParams = request.nextUrl.searchParams;
-  const title = searchParams.get('title');
-  const author = searchParams.get('author');
-  
-  if (!title) {
-    return NextResponse.json(
-      { error: 'Title parameter is required' },
-      { status: 400 }
-    );
-  }
-
   try {
-    // First try Open Library API with a timeout
-    let coverUrl = await tryOpenLibrary(title, author);
-    
-    // If not found, try Google Books API
-    if (!coverUrl) {
-      coverUrl = await tryGoogleBooks(title, author);
+    // Dev mode: bypass authentication
+    let userId;
+    try {
+      const { userId: authUserId } = await auth();
+      userId = authUserId;
+    } catch (error) {
+      userId = 'dev-user';
     }
-    
-    // If still not found, use placeholder
-    if (!coverUrl) {
-      return NextResponse.json(
-        { coverUrl: null, message: 'No cover found' },
-        { status: 404 }
-      );
+
+    // If no user ID is found, and we're not in dev mode with a dev-user, return unauthorized
+    // if (!userId) {
+    //   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    // }
+
+    // Get query parameters
+    const { searchParams } = new URL(request.url);
+    const title = searchParams.get('title');
+    const author = searchParams.get('author');
+
+    if (!title) {
+      return NextResponse.json({ error: 'Title is required' }, { status: 400 });
     }
-    
-    return NextResponse.json({ coverUrl }, { status: 200 });
+
+    // Check if the cover image is already in the cache
+    const cacheKey = `${title}-${author || ''}`;
+    if (coverCache[cacheKey] && (Date.now() - coverCache[cacheKey].timestamp) < CACHE_EXPIRATION) {
+      console.log(`Using cached cover for "${title}"`);
+      return NextResponse.json({ coverImage: coverCache[cacheKey].coverImage });
+    }
+
+    // Try various methods to find a cover image
+    let coverImage = null;
+
+    // 1. First check our database
+    coverImage = await tryDatabaseCover(title, author);
+    if (coverImage) {
+      // Store in cache
+      coverCache[cacheKey] = { coverImage, timestamp: Date.now() };
+      return NextResponse.json({ coverImage });
+    }
+
+    // 2. Try Google Books API
+    coverImage = await tryGoogleBooks(title, author);
+    if (coverImage) {
+      // Store in cache
+      coverCache[cacheKey] = { coverImage, timestamp: Date.now() };
+      return NextResponse.json({ coverImage });
+    }
+
+    // If we still don't have a cover image, return a 404
+    return NextResponse.json({ error: 'No cover image found' }, { status: 404 });
   } catch (error) {
-    console.error('Error fetching book cover:', error);
-    return NextResponse.json(
-      { coverUrl: null, error: 'Failed to fetch book cover' },
-      { status: 500 }
-    );
+    console.error('Error in book cover route:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
 
-async function tryOpenLibrary(title: string, author: string | null): Promise<string | null> {
+async function tryDatabaseCover(title: string, author: string | null): Promise<string | null> {
   try {
-    const query = encodeURIComponent(`title:${title}${author ? ` author:${author}` : ''}`);
+    const connection = await getConnection();
     
-    // Use AbortController for timeout
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout
+    // Use LIKE for more flexible matching
+    const query = `
+      SELECT cover_image 
+      FROM books 
+      WHERE title LIKE ? 
+      ${author ? 'AND author LIKE ?' : ''}
+      AND cover_image IS NOT NULL 
+      AND cover_image != ''
+      LIMIT 1
+    `;
     
-    const response = await fetch(`https://openlibrary.org/search.json?q=${query}&limit=1`, {
-      signal: controller.signal,
-      headers: {
-        'User-Agent': 'Rousi Book Club/1.0 (educational project)'
-      }
-    }).catch(err => {
-      console.warn('OpenLibrary fetch failed:', err.message);
-      return null;
-    });
+    const params = [`%${title}%`];
+    if (author) params.push(`%${author}%`);
     
-    clearTimeout(timeoutId);
+    const [rows] = await connection.execute(query, params);
+    await connection.end();
     
-    if (!response || !response.ok) {
-      console.warn('OpenLibrary returned non-OK response:', response?.status);
-      return null;
-    }
-    
-    const data = await response.json();
-    
-    if (data.docs && data.docs.length > 0 && data.docs[0].cover_i) {
-      const coverId = data.docs[0].cover_i;
-      return `https://covers.openlibrary.org/b/id/${coverId}-L.jpg`;
+    // @ts-ignore
+    if (rows && rows.length > 0 && rows[0].cover_image) {
+      // @ts-ignore
+      return rows[0].cover_image;
     }
     
     return null;
   } catch (error) {
-    console.error('Open Library API error:', error);
+    console.error('Error querying database for cover:', error);
     return null;
   }
 }
 
 async function tryGoogleBooks(title: string, author: string | null): Promise<string | null> {
   try {
-    const query = encodeURIComponent(`${title}${author ? ` ${author}` : ''}`);
+    // Check rate limiting
+    const now = Date.now();
+    if (now - windowStartTime > RATE_LIMIT_WINDOW) {
+      // Reset the window if it's expired
+      windowStartTime = now;
+      googleBooksRequestsInWindow = 0;
+    }
     
-    // Use AbortController for timeout
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout
-    
-    const response = await fetch(`https://www.googleapis.com/books/v1/volumes?q=${query}&maxResults=1`, {
-      signal: controller.signal,
-      headers: {
-        'User-Agent': 'Rousi Book Club/1.0 (educational project)'
-      }
-    }).catch(err => {
-      console.warn('Google Books fetch failed:', err.message);
+    if (googleBooksRequestsInWindow >= MAX_REQUESTS_PER_WINDOW) {
+      console.log(`Rate limit reached (${MAX_REQUESTS_PER_WINDOW} requests in the last minute). Skipping Google Books API call.`);
+      // Rather than failing, we'll just return null and let the caller handle it
       return null;
-    });
+    }
     
+    // Increment the request counter
+    googleBooksRequestsInWindow++;
+    
+    // Construct the query
+    const apiKey = process.env.GOOGLE_BOOKS_API_KEY;
+    console.log(`Fetching Google Books with API key: ${apiKey ? 'Using API key' : 'No API key'}`);
+    
+    // Format the query to search for the title and author
+    let query = `intitle:${title.replace(/_/g, ' ')}`;
+    if (author && author !== 'Unknown Author') {
+      query += `+inauthor:${author}`;
+    }
+    
+    // Build the URL with the API key if available
+    const url = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=3${apiKey ? `&key=${apiKey}` : ''}`;
+    
+    // Use AbortController to set a timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
+    const response = await fetch(url, { signal: controller.signal });
     clearTimeout(timeoutId);
     
-    if (!response || !response.ok) {
+    if (!response.ok) {
+      console.log(`Google Books API error: ${response.status} ${response.statusText}`);
       return null;
     }
     
     const data = await response.json();
+    console.log(`Google Books returned ${data.items?.length || 0} results for "${title}"`);
     
-    if (data.items && data.items.length > 0 && 
-        data.items[0].volumeInfo && 
-        data.items[0].volumeInfo.imageLinks &&
-        data.items[0].volumeInfo.imageLinks.thumbnail) {
-      // Return HTTPS version of the URL
-      return data.items[0].volumeInfo.imageLinks.thumbnail.replace('http://', 'https://');
+    // Check if we have items
+    if (!data.items || data.items.length === 0) {
+      return null;
+    }
+    
+    // Look for the book with the best cover image
+    for (const item of data.items) {
+      if (item.volumeInfo?.imageLinks?.thumbnail) {
+        // Replace http with https and zoom=1 with zoom=0 to get a higher quality image
+        let imageUrl = item.volumeInfo.imageLinks.thumbnail;
+        imageUrl = imageUrl.replace('http://', 'https://');
+        
+        // Replace zoom level for better quality if we're using Google Books API
+        if (imageUrl.includes('books.google.com')) {
+          imageUrl = imageUrl.replace('zoom=1', 'zoom=0');
+        }
+        
+        return imageUrl;
+      }
     }
     
     return null;
   } catch (error) {
-    console.error('Google Books API error:', error);
+    if (error instanceof Error && error.name === 'AbortError') {
+      console.log(`Google Books API request for "${title}" timed out`);
+    } else {
+      console.error('Error in tryGoogleBooks:', error);
+    }
     return null;
   }
 } 

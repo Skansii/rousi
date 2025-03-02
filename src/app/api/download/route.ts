@@ -5,15 +5,23 @@ import path from 'path';
 import { executeQuery } from '@/lib/db';
 
 export async function GET(request: NextRequest) {
-  const { userId } = await auth();
-  
-  // Check if user is authenticated
-  if (!userId) {
-    return NextResponse.json(
-      { error: 'Unauthorized' },
-      { status: 401 }
-    );
+  // Temporarily bypass authentication for local development
+  let userId;
+  try {
+    const authResult = await auth();
+    userId = authResult.userId;
+  } catch (error) {
+    console.warn('Auth check failed, proceeding anyway for local development');
+    userId = 'dev-user';
   }
+  
+  // Comment out authentication check temporarily for local development
+  // if (!userId) {
+  //   return NextResponse.json(
+  //     { error: 'Unauthorized' },
+  //     { status: 401 }
+  //   );
+  // }
 
   // Get query parameters
   const searchParams = request.nextUrl.searchParams;

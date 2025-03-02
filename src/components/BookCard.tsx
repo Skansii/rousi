@@ -1,9 +1,11 @@
 "use client";
 
-import Image from "next/image";
+import React, { useState, useEffect } from 'react';
+import Image from 'next/image';
+import Link from 'next/link';
 import { Book } from "@/types/book";
-import { useState, useEffect } from "react";
 import { Download, FileType, Globe, BookOpen } from "lucide-react";
+import { BookCover } from "@/components/BookCover";
 
 interface BookCardProps {
   book: Book;
@@ -11,9 +13,11 @@ interface BookCardProps {
 
 export function BookCard({ book }: BookCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
-  const [coverImage, setCoverImage] = useState<string | null>(null);
-  const [isLoadingCover, setIsLoadingCover] = useState(true);
-  const [coverError, setCoverError] = useState(false);
+  const [imageUrl, setImageUrl] = useState<string | null>(book.cover_image || null);
+  const [imageError, setImageError] = useState(false);
+  const [isLoading, setIsLoading] = useState(!book.cover_image);
+  const [retryCount, setRetryCount] = useState(0);
+  const MAX_RETRIES = 2;
   
   // Format month from number to name
   const monthNames = [
@@ -24,78 +28,6 @@ export function BookCard({ book }: BookCardProps) {
   const monthName = book.month && book.month > 0 && book.month <= 12 
     ? monthNames[book.month - 1] 
     : '';
-  
-  // Fetch book cover from external API if not provided
-  useEffect(() => {
-    const fetchCover = async () => {
-      try {
-        setIsLoadingCover(true);
-        setCoverError(false);
-        
-        // Use provided cover if available
-        if (book.cover_image) {
-          setCoverImage(book.cover_image);
-          return;
-        }
-        
-        // Try to fetch from our book cover API with timeout protection
-        let retries = 0;
-        const maxRetries = 2;
-        let success = false;
-        
-        while (retries <= maxRetries && !success) {
-          try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 3000);
-            
-            const response = await fetch(
-              `/api/book-cover?title=${encodeURIComponent(book.title)}&author=${encodeURIComponent(book.author)}`,
-              { signal: controller.signal }
-            );
-            
-            clearTimeout(timeoutId);
-            
-            if (response.ok) {
-              const data = await response.json();
-              if (data.coverUrl) {
-                setCoverImage(data.coverUrl);
-                success = true;
-                return;
-              }
-            }
-            
-            // If we get here, try again
-            retries++;
-            if (retries <= maxRetries) {
-              console.info(`Retrying book cover fetch (${retries}/${maxRetries})`);
-              await new Promise(r => setTimeout(r, 1000)); // Wait 1 second before retry
-            }
-          } catch (err) {
-            console.warn(`Book cover fetch attempt ${retries+1} failed:`, err);
-            retries++;
-            if (retries <= maxRetries) {
-              await new Promise(r => setTimeout(r, 1000)); // Wait 1 second before retry
-            }
-          }
-        }
-        
-        // Fall back to placeholder
-        console.info("Using placeholder for book cover:", book.title);
-        setCoverImage(
-          `/api/placeholder?title=${encodeURIComponent(book.title)}&author=${encodeURIComponent(book.author)}`
-        );
-      } catch (error) {
-        console.error("Error fetching book cover:", error);
-        setCoverImage(
-          `/api/placeholder?title=${encodeURIComponent(book.title)}&author=${encodeURIComponent(book.author)}`
-        );
-      } finally {
-        setIsLoadingCover(false);
-      }
-    };
-    
-    fetchCover();
-  }, [book.title, book.author, book.cover_image]);
   
   // Truncate description for initial display
   const truncateDescription = (text: string, maxLength: number) => {
@@ -119,142 +51,147 @@ export function BookCard({ book }: BookCardProps) {
     
     return `${size.toFixed(1)} ${units[unitIndex]}`;
   };
+
+  useEffect(() => {
+    if (!book.cover_image && !imageError && retryCount < MAX_RETRIES) {
+      const fetchCoverImage = async () => {
+        try {
+          setIsLoading(true);
+          // Add a slight delay to avoid hitting rate limits too quickly
+          await new Promise(resolve => setTimeout(resolve, retryCount * 1000));
+          
+          const response = await fetch(`/api/book-cover?title=${encodeURIComponent(book.title)}&author=${encodeURIComponent(book.author)}`);
+          
+          if (response.ok) {
+            const data = await response.json();
+            if (data.coverImage) {
+              setImageUrl(data.coverImage);
+              setImageError(false);
+            } else {
+              setImageError(true);
+            }
+          } else {
+            setImageError(true);
+            if (response.status === 429) {
+              console.log(`Rate limit hit for ${book.title}, waiting longer before retry`);
+              // On rate limit, wait longer before retrying
+              await new Promise(resolve => setTimeout(resolve, 5000));
+              setRetryCount(prev => prev + 1);
+            }
+          }
+        } catch (error) {
+          console.error('Error fetching book cover:', error);
+          setImageError(true);
+        } finally {
+          setIsLoading(false);
+        }
+      };
+
+      fetchCoverImage();
+    }
+  }, [book.title, book.author, book.cover_image, imageError, retryCount]);
+
+  // Create a shortened version of the title for display
+  const shortTitle = book.title.length > 60 ? `${book.title.substring(0, 57)}...` : book.title;
   
+  // Create an acronym for the book title to display as a fallback
+  const getInitials = (text: string) => {
+    return text
+      .split(/\s+/)
+      .map(word => word[0])
+      .join('')
+      .toUpperCase()
+      .substring(0, 3);
+  };
+
+  const bookInitials = getInitials(book.title);
+  
+  // Generate a pastel background color based on the book title
+  const generateColor = (text: string) => {
+    let hash = 0;
+    for (let i = 0; i < text.length; i++) {
+      hash = text.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    
+    const h = Math.abs(hash) % 360;
+    return `hsl(${h}, 70%, 80%)`;
+  };
+
+  const fallbackBgColor = generateColor(book.title);
+
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
-      <div className="p-6">
-        <div className="flex flex-col md:flex-row gap-6">
-          <div className="flex-shrink-0">
-            <div className="relative w-48 h-72 mx-auto md:mx-0 bg-gray-100 dark:bg-gray-700 rounded-md shadow-md overflow-hidden">
-              {isLoadingCover ? (
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
-                </div>
-              ) : coverImage ? (
-                <Image
-                  src={coverImage}
-                  alt={book.title}
-                  fill
-                  className="object-cover"
-                  onError={() => {
-                    console.info("Cover image failed to load, using placeholder for:", book.title);
-                    setCoverError(true);
-                    
-                    // Only try placeholder if we're not already using it
-                    if (!coverImage.includes('/api/placeholder')) {
-                      setCoverImage(`/api/placeholder?title=${encodeURIComponent(book.title)}&author=${encodeURIComponent(book.author)}`);
-                      setCoverError(false);
-                    }
-                  }}
-                  unoptimized={!!coverImage && coverImage.startsWith('https://')}
-                  sizes="(max-width: 768px) 100vw, 300px"
-                  priority={true}
-                />
-              ) : (
-                <div className="absolute inset-0 flex items-center justify-center bg-gray-200 dark:bg-gray-800">
-                  <BookOpen size={48} className="text-gray-400" />
-                </div>
-              )}
-              
-              {coverError && (
-                <div className="absolute inset-0 flex items-center justify-center bg-gray-200 dark:bg-gray-800">
-                  <div className="p-4 text-center">
-                    <BookOpen size={32} className="mx-auto mb-2 text-gray-500" />
-                    <p className="text-xs text-gray-500">Cover not available</p>
-                  </div>
-                </div>
-              )}
+    <div className="flex flex-col overflow-hidden rounded-lg shadow-lg transition-all duration-300 hover:shadow-xl bg-white dark:bg-gray-800 h-full">
+      <div className="relative aspect-[2/3] w-full overflow-hidden bg-gray-200 dark:bg-gray-700">
+        {isLoading ? (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-300 border-t-blue-600"></div>
+          </div>
+        ) : imageUrl && !imageError ? (
+          <Image
+            src={imageUrl}
+            alt={book.title}
+            fill
+            sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+            className="object-cover transition-opacity"
+            onError={() => setImageError(true)}
+            priority={false}
+          />
+        ) : (
+          <div 
+            className="absolute inset-0 flex flex-col items-center justify-center p-4 text-center"
+            style={{ backgroundColor: fallbackBgColor }}
+          >
+            <BookOpen className="h-12 w-12 text-gray-700 mb-2" />
+            <div className="text-3xl font-bold text-gray-700">
+              {bookInitials}
+            </div>
+            <div className="text-sm text-gray-700 mt-2 font-semibold">
+              {book.format?.toUpperCase() || 'PDF'}
             </div>
           </div>
+        )}
+      </div>
+
+      <div className="flex flex-col flex-grow p-4">
+        <h3 className="mb-1 font-semibold leading-tight text-gray-900 dark:text-white">
+          {shortTitle}
+        </h3>
+        <p className="text-sm text-gray-600 dark:text-gray-300 mb-3">{book.author}</p>
+        
+        <div className="mt-auto flex items-center justify-between">
+          <span className="inline-block rounded bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-800 dark:bg-blue-900 dark:text-blue-100">
+            {book.format}
+          </span>
           
-          <div className="flex-1">
-            <div className="flex justify-between items-start">
-              <div>
-                <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
-                  {book.title}
-                </h2>
-                <p className="text-lg text-gray-600 dark:text-gray-300 mt-1">
-                  {book.author}
-                </p>
-              </div>
-              {book.month && book.year && (
-                <div className="text-sm font-medium py-1 px-3 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100">
-                  {monthName} {book.year}
-                </div>
-              )}
-            </div>
-            
-            {/* File details */}
-            <div className="mt-4 flex flex-wrap gap-3">
-              {book.language && (
-                <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-700 px-3 py-1 rounded-full text-xs">
-                  <Globe size={14} className="text-gray-500 dark:text-gray-400" />
-                  <span>{book.language}</span>
-                </div>
-              )}
-              
-              {book.format && (
-                <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-700 px-3 py-1 rounded-full text-xs">
-                  <FileType size={14} className="text-gray-500 dark:text-gray-400" />
-                  <span>{book.format.toUpperCase()}</span>
-                </div>
-              )}
-              
-              {book.file_size && (
-                <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-700 px-3 py-1 rounded-full text-xs">
-                  <span>{formatFileSize(book.file_size)}</span>
-                </div>
-              )}
-              
-              {/* Always show downloads, default to 0 if not available */}
-              <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-700 px-3 py-1 rounded-full text-xs">
-                <Download size={14} className="text-gray-500 dark:text-gray-400" />
-                <span>{book.downloads || 0} {book.downloads === 1 ? 'download' : 'downloads'}</span>
-              </div>
-            </div>
-            
-            <div className="mt-4">
-              <div className="text-gray-700 dark:text-gray-300">
-                {isExpanded 
-                  ? (book.description || "No description available.") 
-                  : truncateDescription(book.description, 250)}
-              </div>
-              
-              {book.description && book.description.length > 250 && (
-                <button
-                  onClick={() => setIsExpanded(!isExpanded)}
-                  className="mt-2 text-blue-600 dark:text-blue-400 text-sm font-medium hover:underline"
-                >
-                  {isExpanded ? "Show less" : "Read more"}
-                </button>
-              )}
-            </div>
-            
-            <div className="mt-6">
-              {book.id && (
-                <a
-                  href={`/api/download?id=${book.id}`}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-                >
-                  <Download size={16} />
-                  Download Book
-                </a>
-              )}
-              
-              {book.download_link && !book.id && (
-                <a
-                  href={book.download_link}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-                >
-                  <Download size={16} />
-                  Download Book
-                </a>
-              )}
-            </div>
+          <div className="flex items-center text-sm text-gray-500 dark:text-gray-400">
+            <Download className="mr-1 h-4 w-4" />
+            <span>{book.downloads || 0} {book.downloads === 1 ? 'download' : 'downloads'}</span>
           </div>
         </div>
+
+        <div className="mt-4">
+          <div className="text-gray-700 dark:text-gray-300">
+            {isExpanded 
+              ? (book.description || "No description available.") 
+              : truncateDescription(book.description, 250)}
+          </div>
+          
+          {book.description && book.description.length > 250 && (
+            <button
+              onClick={() => setIsExpanded(!isExpanded)}
+              className="mt-2 text-blue-600 dark:text-blue-400 text-sm font-medium hover:underline"
+            >
+              {isExpanded ? "Show less" : "Read more"}
+            </button>
+          )}
+        </div>
+
+        <Link 
+          href={`/api/download?id=${book.id}`} 
+          className="mt-4 flex w-full items-center justify-center rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+        >
+          Download
+        </Link>
       </div>
     </div>
   );
