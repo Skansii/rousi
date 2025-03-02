@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import Image from 'next/image';
 import { Search, X } from 'lucide-react';
 
@@ -54,11 +54,6 @@ export function FilterSidebar({
       ...currentFilters,
       format
     });
-  };
-
-  const clearFilters = () => {
-    setSearch('');
-    onFilterChange({});
   };
 
   const toggleMobileFilters = () => {

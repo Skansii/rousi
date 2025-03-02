@@ -12,7 +12,7 @@ export async function getConnection() {
   });
 }
 
-export async function executeQuery(query: string, params: any[] = []) {
+export async function executeQuery(query: string, params: unknown[] = []) {
   try {
     const connection = await getConnection();
     const [results] = await connection.execute(query, params);

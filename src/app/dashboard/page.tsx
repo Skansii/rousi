@@ -49,12 +49,12 @@ export default function DashboardPage() {
       
       // Process filter options
       if (data.filters) {
-        const languageOptions = data.filters.languages.map((lang: any) => ({
+        const languageOptions = data.filters.languages.map((lang: { language: string }) => ({
           value: lang.language,
           label: lang.language
         }));
         
-        const formatOptions = data.filters.formats.map((fmt: any) => ({
+        const formatOptions = data.filters.formats.map((fmt: { format: string }) => ({
           value: fmt.format,
           label: fmt.format === 'pdf' ? 'PDF' : fmt.format.toUpperCase()
         }));
@@ -93,7 +93,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     fetchBooks();
-  }, [filters, pagination.page]);
+  }, [filters, pagination.page, fetchBooks]);
 
   const handleFilterChange = (newFilters: {
     language?: string;

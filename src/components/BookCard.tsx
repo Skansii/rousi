@@ -106,7 +106,7 @@ export function BookCard({ book }: BookCardProps) {
                   alt={book.title}
                   fill
                   className="object-cover"
-                  onError={(e) => {
+                  onError={() => {
                     console.info("Cover image not available, using placeholder for:", book.title);
                     setCoverError(true);
                     
