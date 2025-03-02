@@ -1,27 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { executeQuery } from '@/lib/db';
 import { auth } from '@clerk/nextjs/server';
+import { getConnection } from '@/lib/db';
 
 export async function GET(request: NextRequest) {
-  // Temporarily bypass authentication for local development
-  let userId;
   try {
-    const authResult = await auth();
-    userId = authResult.userId;
-  } catch (error) {
-    console.warn('Auth check failed, proceeding anyway for local development');
-    userId = 'dev-user';
-  }
-  
-  // Comment out authentication check temporarily for local development
-  // if (!userId) {
-  //   return NextResponse.json(
-  //     { error: 'Unauthorized' },
-  //     { status: 401 }
-  //   );
-  // }
+    // Dev mode: bypass authentication
+    let userId;
+    try {
+      const { userId: authUserId } = await auth();
+      userId = authUserId;
+    } catch (_error) {
+      // Using dev-user for local development
+      userId = 'dev-user';
+    }
 
-  try {
+    // If no user ID is found, and we're not in dev mode with a dev-user, return unauthorized
+    // if (!userId) {
+    //   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    // }
+
     // Get query parameters for filtering
     const searchParams = request.nextUrl.searchParams;
     const language = searchParams.get('language');

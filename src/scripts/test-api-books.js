@@ -1,5 +1,7 @@
-require('dotenv').config({ path: '.env.local' });
-const axios = require('axios');
+import dotenv from 'dotenv';
+import axios from 'axios';
+
+dotenv.config({ path: '.env.local' });
 
 // Set a timeout for the request (5 seconds)
 const TIMEOUT = 5000;

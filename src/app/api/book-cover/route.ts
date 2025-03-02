@@ -22,7 +22,8 @@ export async function GET(request: NextRequest) {
     try {
       const { userId: authUserId } = await auth();
       userId = authUserId;
-    } catch (error) {
+    } catch (_error) {
+      // Using dev-user for local development
       userId = 'dev-user';
     }
 
@@ -95,9 +96,9 @@ async function tryDatabaseCover(title: string, author: string | null): Promise<s
     const [rows] = await connection.execute(query, params);
     await connection.end();
     
-    // @ts-ignore
+    // @ts-expect-error - rows from MySQL result might not match expected type
     if (rows && rows.length > 0 && rows[0].cover_image) {
-      // @ts-ignore
+      // @ts-expect-error - rows from MySQL result might not match expected type
       return rows[0].cover_image;
     }
     

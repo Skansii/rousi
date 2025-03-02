@@ -1,7 +1,8 @@
 // Load environment variables from .env.local
-const path = require('path');
-const fs = require('fs');
-const dotenv = require('dotenv');
+import path from 'path';
+import fs from 'fs';
+import dotenv from 'dotenv';
+import mysql from 'mysql2/promise';
 
 // Explicitly load the .env.local file
 const envLocalPath = path.resolve(process.cwd(), '.env.local');
@@ -14,8 +15,6 @@ if (fs.existsSync(envLocalPath)) {
 } else {
   console.warn('.env.local file not found');
 }
-
-const mysql = require('mysql2/promise');
 
 async function getConnection() {
   console.log('Connecting to database with these parameters:');
