@@ -30,6 +30,7 @@ export function BookCard({ book }: BookCardProps) {
     const fetchCover = async () => {
       try {
         setIsLoadingCover(true);
+        setCoverError(false);
         
         // Use provided cover if available
         if (book.cover_image) {
@@ -37,20 +38,49 @@ export function BookCard({ book }: BookCardProps) {
           return;
         }
         
-        // Try to fetch from our book cover API
-        const response = await fetch(
-          `/api/book-cover?title=${encodeURIComponent(book.title)}&author=${encodeURIComponent(book.author)}`
-        );
+        // Try to fetch from our book cover API with timeout protection
+        let retries = 0;
+        const maxRetries = 2;
+        let success = false;
         
-        if (response.ok) {
-          const data = await response.json();
-          if (data.coverUrl) {
-            setCoverImage(data.coverUrl);
-            return;
+        while (retries <= maxRetries && !success) {
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 3000);
+            
+            const response = await fetch(
+              `/api/book-cover?title=${encodeURIComponent(book.title)}&author=${encodeURIComponent(book.author)}`,
+              { signal: controller.signal }
+            );
+            
+            clearTimeout(timeoutId);
+            
+            if (response.ok) {
+              const data = await response.json();
+              if (data.coverUrl) {
+                setCoverImage(data.coverUrl);
+                success = true;
+                return;
+              }
+            }
+            
+            // If we get here, try again
+            retries++;
+            if (retries <= maxRetries) {
+              console.info(`Retrying book cover fetch (${retries}/${maxRetries})`);
+              await new Promise(r => setTimeout(r, 1000)); // Wait 1 second before retry
+            }
+          } catch (err) {
+            console.warn(`Book cover fetch attempt ${retries+1} failed:`, err);
+            retries++;
+            if (retries <= maxRetries) {
+              await new Promise(r => setTimeout(r, 1000)); // Wait 1 second before retry
+            }
           }
         }
         
         // Fall back to placeholder
+        console.info("Using placeholder for book cover:", book.title);
         setCoverImage(
           `/api/placeholder?title=${encodeURIComponent(book.title)}&author=${encodeURIComponent(book.author)}`
         );
@@ -107,7 +137,7 @@ export function BookCard({ book }: BookCardProps) {
                   fill
                   className="object-cover"
                   onError={() => {
-                    console.info("Cover image not available, using placeholder for:", book.title);
+                    console.info("Cover image failed to load, using placeholder for:", book.title);
                     setCoverError(true);
                     
                     // Only try placeholder if we're not already using it
@@ -116,7 +146,9 @@ export function BookCard({ book }: BookCardProps) {
                       setCoverError(false);
                     }
                   }}
-                  unoptimized={coverImage.startsWith('https://')}
+                  unoptimized={!!coverImage && coverImage.startsWith('https://')}
+                  sizes="(max-width: 768px) 100vw, 300px"
+                  priority={true}
                 />
               ) : (
                 <div className="absolute inset-0 flex items-center justify-center bg-gray-200 dark:bg-gray-800">

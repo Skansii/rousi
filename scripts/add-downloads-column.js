@@ -1,77 +1,90 @@
-const fs = require('fs');
-const path = require('path');
 const mysql = require('mysql2/promise');
+require('dotenv').config();
 
-// Load environment variables from .env.local
-const dotenvPath = path.resolve(process.cwd(), '.env.local');
-const envConfig = require('dotenv').parse(fs.readFileSync(dotenvPath));
-for (const k in envConfig) {
-  process.env[k] = envConfig[k];
+// Check if a column exists in a table
+async function columnExists(connection, tableName, columnName) {
+  const [rows] = await connection.execute(
+    `SHOW COLUMNS FROM ${tableName} LIKE ?`,
+    [columnName]
+  );
+  return rows.length > 0;
 }
 
+// Add downloads column if it doesn't exist
 async function addDownloadsColumn() {
-  // Create database connection using DATABASE_URL from .env.local
-  let connection;
-  
   try {
-    if (process.env.DATABASE_URL) {
-      console.log('Using DATABASE_URL from environment...');
-      connection = await mysql.createConnection(process.env.DATABASE_URL);
-    } else {
-      console.log('Using individual database parameters...');
-      connection = await mysql.createConnection({
-        host: process.env.DB_HOST || 'localhost',
-        user: process.env.DB_USER || 'root',
-        password: process.env.DB_PASSWORD || '',
-        database: process.env.DB_NAME || 'rousi_app',
-      });
-    }
+    // Create connection with SSL (for production PlanetScale)
+    const connection = await mysql.createConnection({
+      host: process.env.DATABASE_HOST,
+      user: process.env.DATABASE_USERNAME,
+      password: process.env.DATABASE_PASSWORD,
+      database: process.env.DATABASE_NAME,
+      port: process.env.DATABASE_PORT || 3306,
+      ssl: {
+        rejectUnauthorized: true
+      }
+    });
+
+    console.log('Connected to the database. Checking for missing columns...');
+
+    // Check if 'downloads' column exists in books table
+    const downloadsExists = await columnExists(connection, 'books', 'downloads');
     
-    console.log('Connected to database. Checking if downloads column exists...');
-    
-    // Check if the downloads column already exists
-    const [columns] = await connection.execute(`SHOW COLUMNS FROM books`);
-    const columnNames = columns.map(col => col.Field);
-    
-    if (columnNames.includes('downloads')) {
-      console.log('Downloads column already exists.');
+    if (downloadsExists) {
+      console.log('downloads column already exists in the books table.');
     } else {
       console.log('Adding downloads column to books table...');
-      await connection.execute(`
-        ALTER TABLE books 
-        ADD COLUMN downloads INT DEFAULT 0 AFTER file_size
-      `);
-      console.log('Downloads column added successfully!');
-      
-      // Initialize with random values for demo purposes
-      console.log('Initializing download counts with random values for demo...');
-      await connection.execute(`
-        UPDATE books 
-        SET downloads = FLOOR(RAND() * 100)
-      `);
-      console.log('Download counts initialized!');
+      await connection.execute(
+        'ALTER TABLE books ADD COLUMN downloads INT NOT NULL DEFAULT 0'
+      );
+      console.log('downloads column added successfully!');
     }
+
+    // Also check for other required columns
+    const requiredColumns = ['format', 'language', 'file_path', 'file_size'];
     
-    // Update the API download endpoint to increment download count (instructions)
-    console.log('\nIMPORTANT: To track actual downloads, you need to update the download API endpoint.');
-    console.log('Add this code to src/app/api/download/route.ts after fetching the book:');
-    console.log('```');
-    console.log('// Increment download count');
-    console.log('await executeQuery(');
-    console.log('  "UPDATE books SET downloads = downloads + 1 WHERE id = ?",');
-    console.log('  [bookId]');
-    console.log(');');
-    console.log('```');
-    
+    for (const column of requiredColumns) {
+      const exists = await columnExists(connection, 'books', column);
+      
+      if (!exists) {
+        console.log(`Adding missing ${column} column to books table...`);
+        
+        let columnDefinition;
+        switch (column) {
+          case 'format':
+          case 'language':
+          case 'file_path':
+            columnDefinition = `VARCHAR(255)`;
+            break;
+          case 'file_size':
+            columnDefinition = `BIGINT`;
+            break;
+          default:
+            columnDefinition = `VARCHAR(255)`;
+        }
+        
+        await connection.execute(
+          `ALTER TABLE books ADD COLUMN ${column} ${columnDefinition}`
+        );
+        console.log(`${column} column added successfully!`);
+      }
+    }
+
+    await connection.end();
+    console.log('Database schema update complete!');
+    return true;
   } catch (error) {
     console.error('Error updating database schema:', error);
-  } finally {
-    if (connection) {
-      await connection.end();
-      console.log('Database connection closed.');
-    }
+    return false;
   }
 }
 
 // Run the function
-addDownloadsColumn().catch(console.error); 
+addDownloadsColumn()
+  .then(success => {
+    process.exit(success ? 0 : 1);
+  })
+  .catch(error => {
+    console.error('Unexpected error:', error);
+    process.exit(1);
+  }); 

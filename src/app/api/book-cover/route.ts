@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // First try Open Library API
+    // First try Open Library API with a timeout
     let coverUrl = await tryOpenLibrary(title, author);
     
     // If not found, try Google Books API
@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error('Error fetching book cover:', error);
     return NextResponse.json(
-      { error: 'Failed to fetch book cover' },
+      { coverUrl: null, error: 'Failed to fetch book cover' },
       { status: 500 }
     );
   }
@@ -54,9 +54,25 @@ export async function GET(request: NextRequest) {
 async function tryOpenLibrary(title: string, author: string | null): Promise<string | null> {
   try {
     const query = encodeURIComponent(`title:${title}${author ? ` author:${author}` : ''}`);
-    const response = await fetch(`https://openlibrary.org/search.json?q=${query}&limit=1`);
     
-    if (!response.ok) {
+    // Use AbortController for timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout
+    
+    const response = await fetch(`https://openlibrary.org/search.json?q=${query}&limit=1`, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'Rousi Book Club/1.0 (educational project)'
+      }
+    }).catch(err => {
+      console.warn('OpenLibrary fetch failed:', err.message);
+      return null;
+    });
+    
+    clearTimeout(timeoutId);
+    
+    if (!response || !response.ok) {
+      console.warn('OpenLibrary returned non-OK response:', response?.status);
       return null;
     }
     
@@ -77,9 +93,24 @@ async function tryOpenLibrary(title: string, author: string | null): Promise<str
 async function tryGoogleBooks(title: string, author: string | null): Promise<string | null> {
   try {
     const query = encodeURIComponent(`${title}${author ? ` ${author}` : ''}`);
-    const response = await fetch(`https://www.googleapis.com/books/v1/volumes?q=${query}&maxResults=1`);
     
-    if (!response.ok) {
+    // Use AbortController for timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout
+    
+    const response = await fetch(`https://www.googleapis.com/books/v1/volumes?q=${query}&maxResults=1`, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'Rousi Book Club/1.0 (educational project)'
+      }
+    }).catch(err => {
+      console.warn('Google Books fetch failed:', err.message);
+      return null;
+    });
+    
+    clearTimeout(timeoutId);
+    
+    if (!response || !response.ok) {
       return null;
     }
     

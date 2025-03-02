@@ -46,10 +46,21 @@ export async function GET(request: NextRequest) {
       
       // Try to increment download count, but don't let it block the download if it fails
       try {
-        await executeQuery(
-          'UPDATE books SET downloads = IFNULL(downloads, 0) + 1 WHERE id = ?',
-          [bookId]
-        );
+        // First check if downloads column exists
+        const [columns] = await executeQuery(
+          'SHOW COLUMNS FROM books LIKE ?',
+          ['downloads']
+        ) as unknown[];
+        
+        // Only try to update if the column exists
+        if (Array.isArray(columns) && columns.length > 0) {
+          await executeQuery(
+            'UPDATE books SET downloads = IFNULL(downloads, 0) + 1 WHERE id = ?',
+            [bookId]
+          );
+        } else {
+          console.info('Downloads column does not exist, skipping counter update');
+        }
       } catch (counterError) {
         // Just log the error but continue with serving the file
         console.warn('Could not update download counter:', counterError);
