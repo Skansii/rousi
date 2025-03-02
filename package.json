@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "db:update": "node scripts/add-downloads-column.js",
-    "db:update:remote": "node scripts/trigger-db-update.js"
+    "db:update:remote": "node scripts/trigger-db-update.js",
+    "vercel-build": "next build && (npm run db:update || echo 'Database update failed, continuing deployment')"
   },
   "dependencies": {
     "@clerk/nextjs": "^6.12.2",

@@ -31,14 +31,55 @@ function getDatabaseConfig() {
 // Check if a column exists in a table
 async function columnExists(connection, tableName, columnName) {
   try {
-    const [rows] = await connection.execute(
-      `SHOW COLUMNS FROM ${tableName} LIKE ?`,
-      [columnName]
-    );
-    return rows.length > 0;
+    // First try: MariaDB doesn't always support parameters in SHOW COLUMNS
+    // Safely escape column name to prevent SQL injection
+    const safeColumnName = columnName.replace(/[^\w]/g, '');
+    
+    try {
+      const [rows] = await connection.execute(
+        `SHOW COLUMNS FROM ${tableName} LIKE '${safeColumnName}'`
+      );
+      return rows.length > 0;
+    } catch (innerError) {
+      console.log(`SHOW COLUMNS approach failed, trying alternative method for ${columnName}...`);
+      
+      // Second try: Use INFORMATION_SCHEMA as a more compatible alternative
+      const [infoRows] = await connection.execute(
+        `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`,
+        [tableName, columnName]
+      );
+      return infoRows.length > 0;
+    }
   } catch (error) {
     console.error(`Error checking if column '${columnName}' exists:`, error.message);
-    throw error;
+    // Return false instead of throwing to make the script more robust
+    return false;
+  }
+}
+
+// Check if a table exists
+async function tableExists(connection, tableName) {
+  try {
+    // First attempt: SHOW TABLES
+    try {
+      const [tables] = await connection.execute('SHOW TABLES');
+      const tableNames = tables.map(t => Object.values(t)[0]);
+      return tableNames.includes(tableName);
+    } catch (innerError) {
+      console.log('SHOW TABLES approach failed, trying alternative method...');
+      
+      // Second attempt: INFORMATION_SCHEMA
+      const [rows] = await connection.execute(
+        `SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES 
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`,
+        [tableName]
+      );
+      return rows.length > 0;
+    }
+  } catch (error) {
+    console.error(`Error checking if table '${tableName}' exists:`, error.message);
+    return false;
   }
 }
 
@@ -66,6 +107,45 @@ async function withRetry(fn, options = {}) {
   throw lastError;
 }
 
+// Create a column using ALTER TABLE with better compatibility
+async function createColumn(connection, tableName, columnName, columnDefinition) {
+  try {
+    console.log(`Adding ${columnName} column to ${tableName} table...`);
+    
+    // Try the simple approach first
+    try {
+      await connection.execute(
+        `ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`
+      );
+    } catch (innerError) {
+      console.log(`Standard ALTER TABLE failed, trying with IF NOT EXISTS syntax...`);
+      
+      // Some MariaDB versions support IF NOT EXISTS
+      try {
+        await connection.execute(
+          `ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS ${columnName} ${columnDefinition}`
+        );
+      } catch (innerError2) {
+        // Last resort: manually check and add
+        console.log(`IF NOT EXISTS syntax failed too, trying manual check and add...`);
+        
+        const exists = await columnExists(connection, tableName, columnName);
+        if (!exists) {
+          await connection.query(
+            `ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`
+          );
+        }
+      }
+    }
+    
+    console.log(`${columnName} column added successfully!`);
+    return true;
+  } catch (error) {
+    console.error(`Error adding ${columnName} column:`, error.message);
+    return false;
+  }
+}
+
 // Add downloads column if it doesn't exist
 async function addDownloadsColumn() {
   let connection;
@@ -85,15 +165,22 @@ async function addDownloadsColumn() {
 
     console.log('Connected to the database. Checking for missing columns...');
 
-    // Get existing tables
-    const [tables] = await connection.execute('SHOW TABLES');
-    const tableNames = tables.map(t => Object.values(t)[0]);
-    
-    if (!tableNames.includes('books')) {
+    // Check if books table exists
+    const booksTableExists = await tableExists(connection, 'books');
+    if (!booksTableExists) {
       console.error('Error: books table does not exist in the database!');
-      console.log('Available tables:', tableNames.join(', '));
+      try {
+        // Try to list available tables for debugging
+        const [tables] = await connection.execute('SHOW TABLES');
+        const tableNames = tables.map(t => Object.values(t)[0]);
+        console.log('Available tables:', tableNames.join(', '));
+      } catch (error) {
+        console.error('Could not list available tables:', error.message);
+      }
       return false;
     }
+    
+    console.log('Found books table. Checking columns...');
 
     // Check if 'downloads' column exists in books table
     const downloadsExists = await columnExists(connection, 'books', 'downloads');
@@ -101,11 +188,7 @@ async function addDownloadsColumn() {
     if (downloadsExists) {
       console.log('downloads column already exists in the books table.');
     } else {
-      console.log('Adding downloads column to books table...');
-      await connection.execute(
-        'ALTER TABLE books ADD COLUMN downloads INT NOT NULL DEFAULT 0'
-      );
-      console.log('downloads column added successfully!');
+      await createColumn(connection, 'books', 'downloads', 'INT NOT NULL DEFAULT 0');
     }
 
     // Also check for other required columns
@@ -120,12 +203,7 @@ async function addDownloadsColumn() {
       const exists = await columnExists(connection, 'books', column.name);
       
       if (!exists) {
-        console.log(`Adding missing ${column.name} column to books table...`);
-        
-        await connection.execute(
-          `ALTER TABLE books ADD COLUMN ${column.name} ${column.type}`
-        );
-        console.log(`${column.name} column added successfully!`);
+        await createColumn(connection, 'books', column.name, column.type);
       } else {
         console.log(`${column.name} column already exists.`);
       }
