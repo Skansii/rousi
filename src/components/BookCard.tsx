@@ -8,7 +8,7 @@ import { Download, FileType as _FileType, Globe as _Globe, BookOpen } from "luci
 import { BookCover as _BookCover } from "@/components/BookCover";
 
 // Create an ImageWithFallback client component to handle the onError event
-function _ImageWithFallback({
+function _UnusedImageWithFallback({
   src,
   alt,
   fallback,
@@ -23,9 +23,11 @@ function _ImageWithFallback({
 }) {
   const [error, setError] = useState<boolean>(false);
   
-  return error ? (
-    <div className="image-fallback">{fallback}</div>
-  ) : (
+  if (error) {
+    return <>{fallback}</>;
+  }
+  
+  return (
     <img
       src={src}
       alt={alt}
