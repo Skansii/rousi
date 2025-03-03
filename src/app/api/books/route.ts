@@ -1,129 +1,89 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { executeQuery } from '@/lib/db';
 import { auth } from '@clerk/nextjs/server';
-import { getConnection } from '@/lib/db';
+import { executeQuery } from '@/lib/db';
 
 export async function GET(request: NextRequest) {
   try {
-    // Dev mode: bypass authentication
+    // For local development, bypass auth check
     let userId;
     try {
       const { userId: authUserId } = await auth();
       userId = authUserId;
     } catch (_error) {
-      // Using dev-user for local development
+      // During development, bypass authentication
       userId = 'dev-user';
     }
 
-    // If no user ID is found, and we're not in dev mode with a dev-user, return unauthorized
+    // Commented out for local development
     // if (!userId) {
-    //   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    //   return new NextResponse(JSON.stringify({ error: 'Unauthorized' }), {
+    //     status: 401,
+    //     headers: { 'Content-Type': 'application/json' },
+    //   });
     // }
 
-    // Get query parameters for filtering
-    const searchParams = request.nextUrl.searchParams;
-    const language = searchParams.get('language');
-    const format = searchParams.get('format');
-    const search = searchParams.get('search');
-    const random = searchParams.get('random') === 'true';
-    const page = parseInt(searchParams.get('page') || '1');
-    const limit = parseInt(searchParams.get('limit') || '10');
+    const url = new URL(request.url);
+    
+    // Parse query parameters
+    const page = parseInt(url.searchParams.get('page') || '1');
+    const limit = parseInt(url.searchParams.get('limit') || '10');
+    const search = url.searchParams.get('search');
+    const format = url.searchParams.get('format');
+    const language = url.searchParams.get('language');
+    const random = url.searchParams.get('random') === 'true';
+    
+    // Calculate offset
     const offset = (page - 1) * limit;
     
-    // Base query
-    let query = `
-      SELECT 
-        id, title, author, description, cover_image, 
-        download_link, format, language, file_size, 
-        month, year, created_at, updated_at,
-        0 as downloads
-      FROM books 
-      WHERE 1=1
-    `;
+    // Prepare SQL query
+    let whereConditions = [];
+    let params: Array<string | number> = [];
     
-    const queryParams: any[] = [];
-    
-    // Add filters
-    if (language) {
-      query += ` AND language = ?`;
-      queryParams.push(language);
+    if (search) {
+      whereConditions.push('(title LIKE ? OR author LIKE ?)');
+      params.push(`%${search}%`, `%${search}%`);
     }
     
     if (format) {
-      query += ` AND format = ?`;
-      queryParams.push(format);
+      whereConditions.push('format = ?');
+      params.push(format);
     }
     
-    if (search) {
-      query += ` AND (title LIKE ? OR author LIKE ?)`;
-      queryParams.push(`%${search}%`, `%${search}%`);
+    if (language) {
+      whereConditions.push('language = ?');
+      params.push(language);
     }
     
-    // Add order by, either random or most recent
-    if (random) {
-      query += ` ORDER BY RAND()`;
-    } else {
-      query += ` ORDER BY year DESC, month DESC`;
-    }
+    const whereClause = whereConditions.length > 0 
+      ? `WHERE ${whereConditions.join(' AND ')}` 
+      : '';
     
-    // Add limit
-    query += ` LIMIT ? OFFSET ?`;
-    queryParams.push(limit, offset);
+    // Get total count first
+    const countQuery = `SELECT COUNT(*) as total FROM books ${whereClause}`;
+    const countResult = await executeQuery(countQuery, params);
     
-    // Execute query
-    const books = await executeQuery(query, queryParams);
+    // TypeScript type assertion for the database response
+    const total = Array.isArray(countResult) && countResult.length > 0 
+      ? (countResult[0] as { total: number }).total 
+      : 0;
     
-    // Get available languages and formats for filters
-    const [languages] = await executeQuery(
-      `SELECT DISTINCT language FROM books ORDER BY language`
-    ) as [any[]];
+    // Construct and execute main query
+    const orderBy = random ? 'ORDER BY RAND()' : 'ORDER BY id DESC';
+    const query = `
+      SELECT 
+        id, title, author, format, language, 
+        cover_image, downloads, file_size, 
+        month, year
+      FROM books 
+      ${whereClause} 
+      ${orderBy} 
+      LIMIT ? OFFSET ?
+    `;
     
-    const [formats] = await executeQuery(
-      `SELECT DISTINCT format FROM books ORDER BY format`
-    ) as [any[]];
+    const books = await executeQuery(query, [...params, limit, offset]);
     
-    // Get total count for pagination
-    const [countResult] = await executeQuery(
-      `SELECT COUNT(*) as total FROM books`,
-      []
-    ) as any[];
-    
-    const total = countResult?.total || 0;
-    
-    // Ensure Arabic, English and German are always included in language filters
-    // Convert the query result to a simple array of language objects
-    const availableLanguages = Array.isArray(languages) 
-      ? languages.map((row) => ({ language: row.language })) 
-      : [];
-    
-    // Add required languages if they're not present in database
-    const requiredLanguages = ['Arabic', 'English', 'German'];
-    const existingLanguageNames = availableLanguages.map((item) => item.language);
-    
-    for (const lang of requiredLanguages) {
-      if (!existingLanguageNames.includes(lang)) {
-        availableLanguages.push({ language: lang });
-      }
-    }
-    
-    return NextResponse.json({
-      books,
-      filters: {
-        languages: availableLanguages,
-        formats: Array.isArray(formats) ? formats : []
-      },
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit)
-      }
-    }, { status: 200 });
-  } catch (error) {
-    console.error('Error fetching books:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch books' },
-      { status: 500 }
-    );
+    return NextResponse.json({ books, total, page, limit });
+  } catch (_error) {
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 } 
