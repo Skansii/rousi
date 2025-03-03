@@ -1,10 +1,11 @@
-import { Suspense } from 'react';
+import { Suspense as _Suspense } from 'react';
 import { auth } from '@clerk/nextjs/server';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import { BookOpen } from 'lucide-react';
 import { BookCard } from '@/components/BookCard';
+import { Book } from '@/types/book';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -71,7 +72,14 @@ export default async function Dashboard({ searchParams }: PageProps) {
   const random = searchParams?.random === 'true';
 
   // Fetch books function
-  async function fetchBooks(params: any) {
+  async function fetchBooks(params: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    format?: string;
+    language?: string;
+    random?: boolean;
+  }) {
     const { page, limit, search, format, language, random } = params;
     
     // Build query parameters
@@ -178,7 +186,7 @@ export default async function Dashboard({ searchParams }: PageProps) {
       {books.length > 0 ? (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
-            {books.map((book: any) => (
+            {books.map((book: Book) => (
               <BookCard key={book.id} book={book} />
             ))}
           </div>
@@ -194,7 +202,7 @@ export default async function Dashboard({ searchParams }: PageProps) {
           <BookOpen className="h-16 w-16 text-gray-400 mb-4" />
           <h3 className="text-xl font-medium text-gray-900 dark:text-white">No books found</h3>
           <p className="text-gray-500 dark:text-gray-400 mt-2">
-            Try adjusting your search or filter to find what you're looking for.
+            Try adjusting your search or filter to find what you&apos;re looking for.
           </p>
         </div>
       )}

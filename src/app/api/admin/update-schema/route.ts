@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
-import path from 'path';
+import _path from 'path';
 import { addDownloadsColumn } from '../../../../../scripts';
 
 // For added security, we require both authentication and an admin secret
@@ -53,13 +53,16 @@ export async function POST(request: NextRequest) {
       success: true, 
       message: 'Database schema updated successfully'
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error updating database schema:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorStack = error instanceof Error && process.env.NODE_ENV === 'development' ? error.stack : undefined;
+    
     return NextResponse.json(
       { 
         error: 'Failed to update database schema', 
-        message: error.message || 'Unknown error',
-        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        message: errorMessage,
+        stack: errorStack
       },
       { status: 500 }
     );

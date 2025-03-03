@@ -7,7 +7,13 @@ export default function TestBooksPage() {
   const [books, setBooks] = useState<Book[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [dbResponse, setDbResponse] = useState<any>(null);
+  const [dbResponse, setDbResponse] = useState<{
+    success?: boolean;
+    error?: string;
+    message?: string;
+    books?: Book[];
+    total?: number;
+  } | null>(null);
 
   useEffect(() => {
     async function fetchBooks() {
@@ -66,7 +72,7 @@ export default function TestBooksPage() {
         <div>
           <h2 className="text-2xl font-semibold mb-4">Books in Database:</h2>
           <ul className="divide-y">
-            {books.map((book) => (
+            {books.map((book: Book) => (
               <li key={book.id} className="py-4">
                 <h3 className="text-lg font-medium">{book.title}</h3>
                 <p className="text-gray-600">Author: {book.author}</p>

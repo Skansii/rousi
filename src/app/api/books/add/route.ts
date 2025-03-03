@@ -56,11 +56,21 @@ export async function POST(request: Request) {
       [title, author, finalDescription, cover_image, download_link, month, year]
     );
 
-    return NextResponse.json({ success: true, bookId: (result as any).insertId }, { status: 201 });
-  } catch (error) {
+    // Define the type for the result
+    interface InsertResult {
+      insertId: number;
+    }
+    
+    return NextResponse.json({ success: true, bookId: (result as InsertResult).insertId }, { status: 201 });
+  } catch (error: unknown) {
     console.error('Error adding book:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    
     return NextResponse.json(
-      { error: 'Failed to add book' },
+      { 
+        error: 'Failed to add book', 
+        message: errorMessage
+      },
       { status: 500 }
     );
   }

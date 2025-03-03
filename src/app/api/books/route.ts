@@ -5,13 +5,13 @@ import { executeQuery } from '@/lib/db';
 export async function GET(request: NextRequest) {
   try {
     // For local development, bypass auth check
-    let userId;
+    let _userId;
     try {
       const { userId: authUserId } = await auth();
-      userId = authUserId;
+      _userId = authUserId;
     } catch (_error) {
       // During development, bypass authentication
-      userId = 'dev-user';
+      _userId = 'dev-user';
     }
 
     // Commented out for local development
@@ -36,8 +36,8 @@ export async function GET(request: NextRequest) {
     const offset = (page - 1) * limit;
     
     // Prepare SQL query
-    let whereConditions = [];
-    let params: Array<string | number> = [];
+    const whereConditions = [];
+    const params = [];
     
     if (search) {
       whereConditions.push('(title LIKE ? OR author LIKE ?)');
@@ -73,7 +73,7 @@ export async function GET(request: NextRequest) {
       SELECT 
         id, title, author, format, language, 
         cover_image, downloads, file_size, 
-        month, year
+        month, year, description
       FROM books 
       ${whereClause} 
       ${orderBy} 
