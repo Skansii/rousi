@@ -1,145 +1,27 @@
+import { Suspense } from 'react';
 import { auth } from '@clerk/nextjs/server';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import { BookOpen } from 'lucide-react';
+import { BookCard } from '@/components/BookCard';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-// Book type definition
-interface Book {
-  id: number;
-  title: string;
-  author: string;
-  format: string;
-  language: string;
-  cover_image?: string;
-  downloads: number;
-  file_size?: number;
-  month?: number;
-  year?: number;
-}
-
-// Function to fetch books from API
-async function fetchBooks(options: {
-  page: number;
-  limit: number;
-  search?: string;
-  format?: string;
-  language?: string;
-  random?: boolean;
-}): Promise<{ books: Book[]; total: number }> {
-  const params = new URLSearchParams();
-  if (options.search) params.append('search', options.search);
-  if (options.format) params.append('format', options.format);
-  if (options.language) params.append('language', options.language);
-  if (options.random) params.append('random', 'true');
-  params.append('page', options.page.toString());
-  params.append('limit', options.limit.toString());
-  
-  const baseUrl = process.env.NEXT_PUBLIC_URL || 'http://localhost:3000';
-  const response = await fetch(`${baseUrl}/api/books?${params.toString()}`, { cache: 'no-store' });
-  
-  if (!response.ok) {
-    throw new Error('Failed to fetch books');
-  }
-  
-  const data = await response.json();
-  return {
-    books: data.books || [],
-    total: data.total || 0
+// Define proper PageProps interface with searchParams
+interface PageProps {
+  searchParams: {
+    page?: string;
+    limit?: string;
+    search?: string;
+    format?: string;
+    language?: string;
+    random?: string;
   };
 }
 
-// Simple BookCard component
-function BookCard({ book }: { book: Book }) {
-  // Create an acronym for the book title to display as a fallback
-  const getInitials = (text: string) => {
-    return text
-      .split(/\s+/)
-      .map(word => word[0])
-      .join('')
-      .toUpperCase()
-      .substring(0, 3);
-  };
-  
-  // Generate a pastel background color based on the book title
-  const generateColor = (text: string) => {
-    let hash = 0;
-    for (let i = 0; i < text.length; i++) {
-      hash = text.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    
-    const h = Math.abs(hash) % 360;
-    return `hsl(${h}, 70%, 80%)`;
-  };
-
-  const bookInitials = getInitials(book.title);
-  const fallbackBgColor = generateColor(book.title);
-  const shortTitle = book.title.length > 60 ? `${book.title.substring(0, 57)}...` : book.title;
-
-  return (
-    <div className="flex flex-col overflow-hidden rounded-lg shadow-lg transition-all duration-300 hover:shadow-xl bg-white dark:bg-gray-800 h-full">
-      <div className="relative aspect-[2/3] w-full overflow-hidden bg-gray-200 dark:bg-gray-700">
-        {book.cover_image ? (
-          <Image
-            src={book.cover_image}
-            alt={book.title}
-            fill
-            sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-            className="object-cover transition-opacity"
-            onError={(e) => {
-              // On error, hide the image and show fallback
-              const target = e.target as HTMLImageElement;
-              target.style.display = 'none';
-              target.parentElement!.classList.add('fallback-active');
-            }}
-          />
-        ) : null}
-        
-        <div 
-          className={`absolute inset-0 flex flex-col items-center justify-center p-4 text-center ${book.cover_image ? 'hidden fallback' : ''}`}
-          style={{ backgroundColor: fallbackBgColor }}
-        >
-          <BookOpen className="h-12 w-12 text-gray-700 mb-2" />
-          <div className="text-3xl font-bold text-gray-700">
-            {bookInitials}
-          </div>
-          <div className="text-sm text-gray-700 mt-2 font-semibold">
-            {book.format?.toUpperCase() || 'PDF'}
-          </div>
-        </div>
-      </div>
-
-      <div className="flex flex-col flex-grow p-4">
-        <h3 className="mb-1 font-semibold leading-tight text-gray-900 dark:text-white">
-          {shortTitle}
-        </h3>
-        <p className="text-sm text-gray-600 dark:text-gray-300 mb-3">{book.author}</p>
-        
-        <div className="mt-auto flex items-center justify-between">
-          <span className="inline-block rounded bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-800 dark:bg-blue-900 dark:text-blue-100">
-            {book.format?.toUpperCase() || 'PDF'}
-          </span>
-          
-          <div className="flex items-center text-sm text-gray-500 dark:text-gray-400">
-            <span>{book.downloads || 0}</span>
-          </div>
-        </div>
-
-        <Link 
-          href={`/api/download?id=${book.id}`} 
-          className="mt-4 flex w-full items-center justify-center rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-        >
-          Download
-        </Link>
-      </div>
-    </div>
-  );
-}
-
-// Simple pagination component
+// Pagination component
 function Pagination({ currentPage, totalPages }: { currentPage: number; totalPages: number }) {
   return (
     <div className="flex items-center justify-center space-x-2">
@@ -172,26 +54,67 @@ function Pagination({ currentPage, totalPages }: { currentPage: number; totalPag
   );
 }
 
-// Use the proper type for Next.js App Router page props
-interface PageProps {
-  params: { [key: string]: string };
-  searchParams: { [key: string]: string | string[] | undefined };
-}
-
 export default async function Dashboard({ searchParams }: PageProps) {
   const { userId } = await auth();
-  
+   
   if (!userId) {
     redirect('/sign-in');
   }
 
-  // Parse search parameters
-  const page = searchParams.page ? parseInt(searchParams.page as string) : 1;
-  const limit = searchParams.limit ? parseInt(searchParams.limit as string) : 12;
-  const search = searchParams.search as string | undefined;
-  const format = searchParams.format as string | undefined;
-  const language = searchParams.language as string | undefined;
-  const random = searchParams.random ? (searchParams.random === 'true') : true;
+  // Parse search parameters (properly handled for Next.js 15)
+  const page = searchParams?.page ? parseInt(searchParams.page) : 1;
+  const limit = searchParams?.limit ? parseInt(searchParams.limit) : 12;
+  const search = searchParams?.search || '';
+  const format = searchParams?.format || '';
+  const language = searchParams?.language || '';
+  // Fix the random parameter - only set to true if explicitly specified
+  const random = searchParams?.random === 'true';
+
+  // Fetch books function
+  async function fetchBooks(params: any) {
+    const { page, limit, search, format, language, random } = params;
+    
+    // Build query parameters
+    const queryParams = new URLSearchParams();
+    if (page) queryParams.append('page', page.toString());
+    if (limit) queryParams.append('limit', limit.toString());
+    if (search) queryParams.append('search', search);
+    if (format) queryParams.append('format', format);
+    if (language) queryParams.append('language', language);
+    if (random) queryParams.append('random', 'true');
+    
+    console.log('Fetching books with params:', queryParams.toString());
+    
+    try {
+      // Get the base URL dynamically
+      const baseUrl = process.env.NEXT_PUBLIC_VERCEL_URL 
+        ? `https://${process.env.NEXT_PUBLIC_VERCEL_URL}`
+        : process.env.NODE_ENV === 'development' 
+          ? 'http://localhost:3002' 
+          : '';
+      
+      // Make sure we have a baseUrl
+      if (!baseUrl) {
+        throw new Error('Base URL not configured. Set NEXT_PUBLIC_VERCEL_URL environment variable.');
+      }
+      
+      // Using this approach because we're in a server component
+      const response = await fetch(new URL(`/api/books?${queryParams.toString()}`, baseUrl), {
+        cache: 'no-store',
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch books: ${response.status} ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      console.log('Books fetched successfully:', data.books?.length || 0, 'books');
+      return data;
+    } catch (error) {
+      console.error('Error fetching books:', error);
+      return { books: [], total: 0 };
+    }
+  }
 
   // Fetch books based on search parameters
   const { books, total } = await fetchBooks({
@@ -209,7 +132,18 @@ export default async function Dashboard({ searchParams }: PageProps) {
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="mb-8 flex flex-col sm:flex-row gap-4 items-center justify-between">
-        <h1 className="text-3xl font-bold">Book Library</h1>
+        <div className="flex items-center">
+          <div className="relative w-auto h-auto">
+            <Image 
+              src="/sadiki_logo.png" 
+              alt="Sadiki Logo" 
+              width={240} 
+              height={120} 
+              className="object-contain"
+              priority
+            />
+          </div>
+        </div>
         
         <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
           <form action="/dashboard" method="GET" className="flex space-x-2">
@@ -244,23 +178,23 @@ export default async function Dashboard({ searchParams }: PageProps) {
       {books.length > 0 ? (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
-            {books.map((book) => (
+            {books.map((book: any) => (
               <BookCard key={book.id} book={book} />
             ))}
           </div>
           
-          <div className="mt-8">
-            <Pagination currentPage={page} totalPages={totalPages} />
-          </div>
+          {totalPages > 1 && (
+            <div className="mt-8">
+              <Pagination currentPage={page} totalPages={totalPages} />
+            </div>
+          )}
         </>
       ) : (
-        <div className="flex flex-col items-center justify-center py-12 text-center">
+        <div className="flex flex-col items-center justify-center py-12">
           <BookOpen className="h-16 w-16 text-gray-400 mb-4" />
-          <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300">No books found</h2>
-          <p className="mt-2 text-gray-500 dark:text-gray-400">
-            {search
-              ? `No results found for "${search}". Try a different search term.`
-              : "There are no books in the library yet."}
+          <h3 className="text-xl font-medium text-gray-900 dark:text-white">No books found</h3>
+          <p className="text-gray-500 dark:text-gray-400 mt-2">
+            Try adjusting your search or filter to find what you're looking for.
           </p>
         </div>
       )}
