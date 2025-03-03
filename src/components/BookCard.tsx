@@ -7,42 +7,17 @@ import { Book } from "@/types/book";
 import { Download, FileType as _FileType, Globe as _Globe, BookOpen } from "lucide-react";
 import { BookCover as _BookCover } from "@/components/BookCover";
 
-// Create an ImageWithFallback client component to handle the onError event
-function _UnusedImageWithFallback({
-  src,
-  alt,
-  fallback,
-  _priority,
-  ...props
-}: {
-  src: string;
-  alt: string;
-  fallback: React.ReactNode;
-  priority?: boolean;
-  [key: string]: unknown;
-}) {
-  const [error, setError] = useState<boolean>(false);
-  
-  if (error) {
-    return <>{fallback}</>;
-  }
-  
-  return (
-    <img
-      src={src}
-      alt={alt}
-      onError={() => setError(true)}
-      {...props}
-    />
-  );
-}
-
-// Add a shimmer loading effect component
+// Shimmer effect component for loading state
 function ShimmerEffect() {
   return (
-    <div className="relative w-full h-full overflow-hidden">
-      <div className="absolute inset-0 bg-gradient-to-r from-gray-200 via-gray-300 to-gray-200 dark:from-gray-700 dark:via-gray-600 dark:to-gray-700"></div>
-      <div className="absolute inset-0 animate-shimmer bg-gradient-to-r from-transparent via-white/20 to-transparent"></div>
+    <div className="animate-pulse flex flex-col h-full">
+      <div className="bg-gray-300 dark:bg-gray-700 h-48 w-full rounded-t-md"></div>
+      <div className="p-4 space-y-3 flex-1">
+        <div className="h-4 bg-gray-300 dark:bg-gray-700 rounded w-3/4"></div>
+        <div className="h-3 bg-gray-300 dark:bg-gray-700 rounded w-1/2"></div>
+        <div className="h-3 bg-gray-300 dark:bg-gray-700 rounded w-5/6"></div>
+        <div className="h-3 bg-gray-300 dark:bg-gray-700 rounded w-2/3"></div>
+      </div>
     </div>
   );
 }
