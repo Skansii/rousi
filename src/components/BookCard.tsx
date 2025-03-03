@@ -8,18 +8,18 @@ import { Download, FileType as _FileType, Globe as _Globe, BookOpen } from "luci
 import { BookCover as _BookCover } from "@/components/BookCover";
 
 // Create an ImageWithFallback client component to handle the onError event
-function ImageWithFallback({
+function _ImageWithFallback({
   src,
   alt,
   fallback,
-  priority,
+  _priority,
   ...props
 }: {
   src: string;
   alt: string;
   fallback: React.ReactNode;
   priority?: boolean;
-  [key: string]: any;
+  [key: string]: unknown;
 }) {
   const [error, setError] = useState<boolean>(false);
   

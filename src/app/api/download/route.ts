@@ -8,15 +8,14 @@ export async function GET(request: NextRequest) {
   try {
     console.log('Download API called with URL:', request.url);
     
-    // For local development, bypass auth check
-    let userId;
+    // Authenticate user
+    let _userId;
     try {
-      const { userId: authUserId } = await auth();
-      userId = authUserId;
-    } catch (error) {
-      // During development, bypass authentication
-      console.log('Auth check bypassed for development:', error);
-      userId = 'dev-user';
+      const { userId } = await auth();
+      _userId = userId;
+    } catch (_error) {
+      // For development, allow unauthenticated access
+      _userId = 'dev-user';
     }
 
     // Commented out for local development
@@ -82,9 +81,24 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'File path not available for this book' }, { status: 404 });
     }
 
-    // Update download count
-    console.log('Updating download count for book ID:', bookId);
-    await executeQuery('UPDATE books SET downloads = downloads + 1 WHERE id = ?', [bookId]);
+    // Update download count in database
+    try {
+      const updateQuery = `
+        UPDATE books 
+        SET downloads = downloads + 1 
+        WHERE id = ?
+      `;
+      
+      interface UpdateResult {
+        affectedRows: number;
+      }
+      
+      const updateResult = await executeQuery(updateQuery, [bookId]) as UpdateResult;
+      console.log(`Updated download count for book ${bookId}, affected rows: ${updateResult.affectedRows}`);
+    } catch (error) {
+      console.error('Error updating download count:', error);
+      // Continue anyway - this is not critical
+    }
 
     // Safety check to prevent directory traversal
     if (filePath.includes('..')) {

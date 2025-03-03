@@ -11,15 +11,18 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 // Define proper PageProps interface with searchParams
+type SearchParams = {
+  page?: string;
+  limit?: string;
+  search?: string;
+  format?: string;
+  language?: string;
+  random?: string;
+};
+
 interface PageProps {
-  searchParams: {
-    page?: string;
-    limit?: string;
-    search?: string;
-    format?: string;
-    language?: string;
-    random?: string;
-  };
+  params: { slug?: string };
+  searchParams: SearchParams;
 }
 
 // Pagination component
