@@ -98,19 +98,29 @@ export default async function Dashboard({ searchParams }: PageProps) {
     
     try {
       // Get the base URL dynamically
-      const baseUrl = process.env.NEXT_PUBLIC_VERCEL_URL 
-        ? `https://${process.env.NEXT_PUBLIC_VERCEL_URL}`
-        : process.env.NODE_ENV === 'development' 
-          ? 'http://localhost:3002' 
-          : '';
+      let baseUrl;
       
-      // Make sure we have a baseUrl
-      if (!baseUrl) {
-        throw new Error('Base URL not configured. Set NEXT_PUBLIC_VERCEL_URL environment variable.');
+      if (process.env.VERCEL_URL) {
+        // Handle Vercel deployment
+        baseUrl = `https://${process.env.VERCEL_URL}`;
+      } else if (process.env.NEXT_PUBLIC_VERCEL_URL) {
+        // Handle Vercel deployment with public URL
+        baseUrl = `https://${process.env.NEXT_PUBLIC_VERCEL_URL}`;
+      } else if (process.env.NODE_ENV === 'development') {
+        // Local development
+        baseUrl = 'http://localhost:3002';
+      } else {
+        // Fallback to relative URL
+        baseUrl = '';
       }
       
-      // Using this approach because we're in a server component
-      const response = await fetch(new URL(`/api/books?${queryParams.toString()}`, baseUrl), {
+      console.log('Using base URL:', baseUrl);
+      
+      // Make API request with absolute or relative URL
+      const apiUrl = baseUrl ? new URL(`/api/books?${queryParams.toString()}`, baseUrl).toString() : `/api/books?${queryParams.toString()}`;
+      console.log('Fetching books from:', apiUrl);
+      
+      const response = await fetch(apiUrl, {
         cache: 'no-store',
       });
       

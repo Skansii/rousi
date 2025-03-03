@@ -4,6 +4,8 @@ import { executeQuery } from '@/lib/db';
 
 export async function GET(request: NextRequest) {
   try {
+    console.log('Books API called with URL:', request.url);
+    
     // For local development, bypass auth check
     let _userId;
     try {
@@ -11,6 +13,7 @@ export async function GET(request: NextRequest) {
       _userId = authUserId;
     } catch (_error) {
       // During development, bypass authentication
+      console.log('Auth check bypassed for development');
       _userId = 'dev-user';
     }
 
@@ -31,6 +34,8 @@ export async function GET(request: NextRequest) {
     const format = url.searchParams.get('format');
     const language = url.searchParams.get('language');
     const random = url.searchParams.get('random') === 'true';
+    
+    console.log('Query parameters:', { page, limit, search, format, language, random });
     
     // Calculate offset
     const offset = (page - 1) * limit;
